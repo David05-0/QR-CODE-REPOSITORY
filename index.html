@@ -33,7 +33,7 @@ button.p{background:var(--pr);border-color:var(--pr);color:#fff;font-weight:600}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.sp{flex:1}.bar input{max-width:230px}
 .tabs button.on{background:var(--pr);color:#fff;border-color:var(--pr)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);overflow:auto;padding:14px;z-index:9}.modal .card{max-width:860px;margin:auto}
-.center{text-align:center;padding:30px 0}.center .e{font-size:54px}
+.center{text-align:center;padding:30px 0}.bad{outline:2px solid var(--dg);outline-offset:3px;border-radius:6px}.center .e{font-size:54px}
 </style>
 </head>
 <body>
@@ -70,7 +70,7 @@ ${list.map((a,i)=>{const v=A[a]||{};return `<tr data-n="${esc(a)}"><td class="ag
 <h2>Part III. Additional Feedback</h2>
 <div class="q"><b>1. What did you like most?</b><textarea id="${u}Liked">${esc(d.Liked)}</textarea></div>
 <div class="q"><b>2. What can we improve?</b><textarea id="${u}Improve">${esc(d.Improve)}</textarea></div>
-<h2>Part IV. Respondent Information <small>(Optional)</small></h2>
+<h2>Part IV. Respondent Information</h2>
 <div class="q"><b>City / Country of Deployment:</b><input type="text" id="${u}Location" value="${esc(d.Location)}"></div>
 <div class="q"><b>Type of Participant:</b>${opts(u,"Type",["Land-based","Sea-based","Family Member"],d.Type)}</div>
 <div class="row"><div><b>Gender:</b>${opts(u,"Gender",["Male","Female","Prefer not to say"],d.Gender)}</div>
@@ -96,18 +96,36 @@ if(CFG.apiKey.startsWith("YOUR")){
 function client(){
   app.innerHTML=`<div class="card"><h1>Alagang OWWA – Client Feedback Form</h1>
 <p>Your feedback helps us improve our services for OFWs and their families. Please take a few minutes to answer this form.</p>
+<p class="note"><span style="color:var(--dg)">*</span> All fields are required.</p>
 <div id="fm">${formHTML(ag,null,"c_")}</div><p class="err" id="err"></p>
 <button class="p big" id="sub">Submit Feedback</button>
 <div class="foot">Thank you for your time and participation.<br>Overseas Workers Welfare Administration (OWWA)<br><i>“Alagang OWWA: Serbisyong may Puso.”</i></div></div>`;
+  $("fm").addEventListener("change",e=>{const t=e.target;if(!/av\d+$/.test(t.name))return;const no=t.value==="No";
+    t.closest("tr").querySelectorAll('input[name*="rt"],textarea').forEach(x=>{x.disabled=no;if(no){x.checked=false;if(x.tagName==="TEXTAREA")x.value=""}})});
   $("sub").onclick=async()=>{
-    const o=readForm($("fm"),"c_");
-    if(!o.Q1){$("err").textContent="Please rate your overall experience (Part I, question 1).";return}
+    document.querySelectorAll(".bad").forEach(x=>x.classList.remove("bad"));
+    const o=readForm($("fm"),"c_"),bad=validate($("fm"),"c_",o);
+    if(bad){bad.node.classList.add("bad");bad.node.scrollIntoView({behavior:"smooth",block:"center"});$("err").textContent=bad.msg;return}
     $("sub").disabled=true;$("err").textContent="";
     try{await db.collection("feedback").add({...o,Created:firebase.firestore.FieldValue.serverTimestamp()});
       app.innerHTML=`<div class="card center"><div class="e">🙏</div><h1 style="border:0">Thank you!</h1><p>Your feedback has been submitted.</p><button id="again">Submit another response</button></div>`;
       $("again").onclick=client;window.scrollTo(0,0);
     }catch(e){$("err").textContent="Could not submit. Please check your connection and try again.";$("sub").disabled=false}
   };
+}
+
+function validate(el,u,o){
+  const grp=n=>el.querySelector(`input[name="${u}${n}"]`).closest(".q,.row>div"),txt=n=>el.querySelector("#"+u+n);
+  const need=(c,node,msg)=>c?null:{node,msg};
+  const r=need(o.Q1,grp("q1"),"Part I: please answer question 1.")||need(o.Q2,grp("q2"),"Part I: please answer question 2.")||need(o.Q3,grp("q3"),"Part I: please answer question 3.");
+  if(r)return r;
+  for(const tr of el.querySelectorAll("tr[data-n]")){const n=tr.dataset.n,v=o.Agencies[n];
+    if(!v.a)return{node:tr,msg:"Part II: choose Yes or No for "+n+"."};
+    if(v.a==="Yes"){if(!v.r)return{node:tr,msg:"Part II: please rate "+n+"."};if(!v.c.trim())return{node:tr,msg:"Part II: please add a comment for "+n+"."}}}
+  const age=Number(o.Age);
+  return need(o.Liked.trim(),txt("Liked").closest(".q"),"Part III: please tell us what you liked most.")||need(o.Improve.trim(),txt("Improve").closest(".q"),"Part III: please tell us what we can improve.")
+    ||need(o.Location.trim(),txt("Location").closest(".q"),"Part IV: please enter your City / Country of Deployment.")||need(o.Type,grp("Type"),"Part IV: please choose your type of participant.")
+    ||need(o.Gender,grp("Gender"),"Part IV: please choose your gender.")||need(age>=1&&age<=120,txt("Age").parentElement,"Part IV: please enter a valid age.")||need(o.First,grp("First"),"Part IV: please answer First-time Attendee.");
 }
 
 /* ---------- ADMIN (#admin) ---------- */
