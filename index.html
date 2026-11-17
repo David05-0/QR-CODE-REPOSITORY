@@ -33,7 +33,7 @@ button.p{background:var(--pr);border-color:var(--pr);color:#fff;font-weight:600}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.sp{flex:1}.bar input{max-width:230px}
 .tabs button.on{background:var(--pr);color:#fff;border-color:var(--pr)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);overflow:auto;padding:14px;z-index:9}.modal .card{max-width:860px;margin:auto}
-.center{text-align:center;padding:30px 0}.bad{outline:2px solid var(--dg);outline-offset:3px;border-radius:6px}.center .e{font-size:54px}
+.center{text-align:center;padding:30px 0}.bad{outline:2px solid var(--dg);outline-offset:3px;border-radius:6px}.cmt{margin:0;padding:8px 10px;border-bottom:1px solid var(--bd);white-space:pre-wrap}.scr{max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;margin-top:6px}details summary{cursor:pointer;color:var(--pr)}.center .e{font-size:54px}
 </style>
 </head>
 <body>
@@ -176,13 +176,24 @@ window.editRow=id=>{
 };
 function sumView(){
   const cnt=(k,vals)=>vals.map(v=>`<tr><td>${v}</td><td>${rows.filter(r=>r[k]===v).length}</td></tr>`).join("");
-  const rate=allAg().map(a=>{const rs=rows.map(r=>(r.Agencies||{})[a]).filter(v=>v&&v.a==="Yes");const nums=rs.map(v=>Number(v.r)).filter(Boolean);
-    return `<tr><td>${esc(a)}</td><td>${rs.length}</td><td>${nums.length?(nums.reduce((x,y)=>x+y,0)/nums.length).toFixed(2):"–"}</td></tr>`}).join("");
-  $("body").innerHTML=`<p><b>Total responses: ${rows.length}</b></p><div class="row" style="align-items:start">
-<div><table><thead><tr><th>Overall experience</th><th>Count</th></tr></thead><tbody>${cnt("Q1",["Excellent","Very Good","Good","Fair","Poor"])}</tbody></table></div>
-<div><table><thead><tr><th>Flow organized</th><th>Count</th></tr></thead><tbody>${cnt("Q2",["Very Organized","Somewhat Organized","Needs Improvement"])}</tbody></table></div>
-<div><table><thead><tr><th>Would recommend</th><th>Count</th></tr></thead><tbody>${cnt("Q3",["Yes","No"])}</tbody></table></div></div>
-<h2>Agency ratings</h2><div class="tw"><table><thead><tr><th>Agency / Service</th><th>Availed (count)</th><th>Average rating</th></tr></thead><tbody>${rate}</tbody></table></div>`;
+  const part2=allAg().map(a=>{
+    const vs=rows.map(r=>({v:(r.Agencies||{})[a],r})).filter(x=>x.v);
+    const yes=vs.filter(x=>x.v.a==="Yes"),no=vs.filter(x=>x.v.a==="No");
+    const nums=yes.map(x=>Number(x.v.r)).filter(Boolean),d=[5,4,3,2,1].map(n=>nums.filter(x=>x===n).length);
+    const cm=vs.filter(x=>x.v.c&&x.v.c.trim());
+    return `<tr><td class="ag">${esc(a)}</td><td>${yes.length}</td><td>${no.length}</td>${d.map(x=>`<td>${x}</td>`).join("")}<td><b>${nums.length?(nums.reduce((x,y)=>x+y,0)/nums.length).toFixed(2):"–"}</b></td></tr>
+<tr><td colspan="9">${cm.length?`<details><summary>Comments / Suggestions (${cm.length})</summary><div class="scr">${cm.map(x=>`<p class="cmt">${esc(x.v.c)} <span class="note">— ${esc(when(x.r))}</span></p>`).join("")}</div></details>`:`<span class="note">No comments</span>`}</td></tr>`}).join("");
+  const lst=k=>{const xs=rows.filter(r=>r[k]&&r[k].trim());return xs.length?xs.map(r=>`<p class="cmt">${esc(r[k])} <span class="note">— ${esc(when(r))}</span></p>`).join(""):`<p class="note">No responses yet.</p>`};
+  $("body").innerHTML=`<p><b>Total responses: ${rows.length}</b></p>
+<h2>Part I. Overall Experience</h2><div class="row" style="align-items:start">
+<div><table><thead><tr><th>1. Overall experience</th><th>Count</th></tr></thead><tbody>${cnt("Q1",["Excellent","Very Good","Good","Fair","Poor"])}</tbody></table></div>
+<div><table><thead><tr><th>2. Flow organized</th><th>Count</th></tr></thead><tbody>${cnt("Q2",["Very Organized","Somewhat Organized","Needs Improvement"])}</tbody></table></div>
+<div><table><thead><tr><th>3. Would recommend</th><th>Count</th></tr></thead><tbody>${cnt("Q3",["Yes","No"])}</tbody></table></div></div>
+<h2>Part II. Services Availed and Agency Performance</h2>
+<div class="tw"><table style="min-width:680px"><thead><tr><th>Agency / Service</th><th>Availed: Yes</th><th>Availed: No</th><th>5</th><th>4</th><th>3</th><th>2</th><th>1</th><th>Average rating</th></tr></thead><tbody>${part2}</tbody></table></div>
+<h2>Part III. Additional Feedback</h2><div class="row" style="align-items:start">
+<div><b>1. What did you like most?</b><div class="scr">${lst("Liked")}</div></div>
+<div><b>2. What can we improve?</b><div class="scr">${lst("Improve")}</div></div></div>`;
 }
 function setView(){
   const url=location.href.split("#")[0];
