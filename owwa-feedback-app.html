@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alagang OWWA – Client Feedback</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{--bg:#eef0f3;--card:#fff;--tx:#1b1f24;--mu:#667085;--bd:#d9dde3;--pr:#1a5fd0;--dg:#b42318;--in:#f7f8fa}
+@media(prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2127;--tx:#e8eaed;--mu:#98a2b3;--bd:#343a43;--pr:#6b9bff;--dg:#f97066;--in:#14171c}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Arial,sans-serif;background:var(--bg);color:var(--tx);padding:14px}
+.wrap{max-width:860px;margin:auto}.wide{max-width:1150px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:22px;margin-bottom:14px}
+h1{color:var(--pr);font-size:21px;margin:0 0 6px;padding-bottom:10px;border-bottom:2px solid var(--bd)}
+h2{font-size:17px;margin:24px 0 4px}h2 small{font-weight:400;color:var(--mu);font-size:13px}
+.q{padding:12px 0;border-bottom:1px dashed var(--bd)}.q b{display:block;margin-bottom:8px}
+.emos{display:flex;gap:12px;flex-wrap:wrap}.emo{cursor:pointer;text-align:center;width:82px;font-size:12px;color:var(--mu)}
+.emo input{position:absolute;opacity:0;pointer-events:none}.emo .e{display:block;font-size:30px;padding:4px;border-radius:10px;border:2px solid transparent}
+.emo input:checked+.e{border-color:var(--pr);background:color-mix(in srgb,var(--pr) 12%,transparent)}
+input[type=text],input[type=email],input[type=password],input[type=number],textarea{width:100%;padding:8px;border:1px solid var(--bd);border-radius:6px;background:var(--in);color:var(--tx);font:inherit}
+textarea{min-height:60px;resize:vertical}.note{font-size:12px;color:var(--mu)}.err{color:var(--dg);font-size:13px;min-height:18px}
+table{border-collapse:collapse;width:100%}th,td{padding:7px;border:1px solid var(--bd);vertical-align:middle;font-size:13px;text-align:left}
+th{background:var(--in);font-size:12px}td.ag{font-weight:600;width:22%}.tw{overflow-x:auto}.tw table{min-width:620px}
+.rt,.yn{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}label{cursor:pointer}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.opts{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
+button{padding:8px 15px;border-radius:6px;border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer;font:inherit}
+button.p{background:var(--pr);border-color:var(--pr);color:#fff;font-weight:600}button.d{color:var(--dg)}button:disabled{opacity:.5}
+.big{width:100%;padding:12px;font-size:15px;margin-top:14px}.foot{text-align:center;font-size:12px;color:var(--mu);border-top:1px solid var(--bd);margin-top:18px;padding-top:12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.sp{flex:1}.bar input{max-width:230px}
+.tabs button.on{background:var(--pr);color:#fff;border-color:var(--pr)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);overflow:auto;padding:14px;z-index:9}.modal .card{max-width:860px;margin:auto}
+.center{text-align:center;padding:30px 0}.center .e{font-size:54px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+/* ===== 1. PASTE YOUR FIREBASE WEB APP CONFIG HERE (Project settings → Your apps) ===== */
+const CFG={apiKey:"YOUR_API_KEY",authDomain:"YOUR_PROJECT.firebaseapp.com",projectId:"YOUR_PROJECT_ID",appId:"YOUR_APP_ID"};
+const ADMIN_EMAIL="admin@yourorg.gov.ph"; /* the admin user you create in Firebase Authentication; its password is the 6-digit PIN */
+/* Admin page = this same file's URL + #admin   |   Clients (QR code) = the URL with no #admin */
+
+const $=id=>document.getElementById(id), app=$("app");
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const DEF_AG=["OWWA E-Card Issuance","OWWA Membership Enrollment/Renewal","DMW","PAG-IBIG Fund","SSS","PHILHEALTH MEMBERSHIP / QUERIES","LANDBANK","LTO","Philippine Embassy Consular Services"];
+let ag=DEF_AG.slice(),db,auth,rows=[],unsub=null;
+
+/* ---------- form (shared by client page and admin edit) ---------- */
+const chk=(v,x)=>v===x?" checked":"";
+const emos=(u,n,list,v)=>`<div class="emos">`+list.map(([e,t])=>`<label class="emo"><input type="radio" name="${u}${n}" value="${t}"${chk(v,t)}><span class="e">${e}</span>${t}</label>`).join("")+`</div>`;
+const opts=(u,n,list,v)=>`<div class="opts">`+list.map(t=>`<label><input type="radio" name="${u}${n}" value="${t}"${chk(v,t)}> ${t}</label>`).join("")+`</div>`;
+function formHTML(list,d,u){d=d||{};const A=d.Agencies||{};return `
+<h2>Part I. Overall Experience</h2>
+<div class="q"><b>1. How would you rate your overall experience today?</b>${emos(u,"q1",[["😁","Excellent"],["🙂","Very Good"],["😐","Good"],["🙁","Fair"],["😠","Poor"]],d.Q1)}</div>
+<div class="q"><b>2. How organized was the flow?</b>${emos(u,"q2",[["🙂","Very Organized"],["😐","Somewhat Organized"],["🙁","Needs Improvement"]],d.Q2)}</div>
+<div class="q"><b>3. Would you recommend this?</b>${emos(u,"q3",[["😁","Yes"],["😠","No"]],d.Q3)}</div>
+<h2>Part II. Services Availed and Agency Performance</h2>
+<p class="note">Please check all agencies you availed of and rate each based on your experience. Scale: 5 – Excellent, 4 – Very Good, 3 – Good, 2 – Fair, 1 – Poor</p>
+<div class="tw"><table><thead><tr><th>Agency / Service</th><th>Availed?</th><th>Rating (1–5)</th><th>Comments / Suggestions</th></tr></thead><tbody>
+${list.map((a,i)=>{const v=A[a]||{};return `<tr data-n="${esc(a)}"><td class="ag">${esc(a)}</td>
+<td><div class="yn">${["Yes","No"].map(x=>`<label><input type="radio" name="${u}av${i}" value="${x}"${chk(v.a,x)}> ${x}</label>`).join("")}</div></td>
+<td><div class="rt">${[5,4,3,2,1].map(n=>`<label><input type="radio" name="${u}rt${i}" value="${n}"${chk(String(v.r),String(n))}> ${n}</label>`).join("")}</div></td>
+<td><textarea id="${u}cm${i}" style="min-height:50px">${esc(v.c)}</textarea></td></tr>`}).join("")}
+</tbody></table></div>
+<h2>Part III. Additional Feedback</h2>
+<div class="q"><b>1. What did you like most?</b><textarea id="${u}Liked">${esc(d.Liked)}</textarea></div>
+<div class="q"><b>2. What can we improve?</b><textarea id="${u}Improve">${esc(d.Improve)}</textarea></div>
+<h2>Part IV. Respondent Information <small>(Optional)</small></h2>
+<div class="q"><b>City / Country of Deployment:</b><input type="text" id="${u}Location" value="${esc(d.Location)}"></div>
+<div class="q"><b>Type of Participant:</b>${opts(u,"Type",["Land-based","Sea-based","Family Member"],d.Type)}</div>
+<div class="row"><div><b>Gender:</b>${opts(u,"Gender",["Male","Female","Prefer not to say"],d.Gender)}</div>
+<div><b>Age:</b><input type="number" min="1" max="120" id="${u}Age" value="${esc(d.Age)}"></div>
+<div><b>First-time Attendee:</b>${opts(u,"First",["Yes","No"],d.First)}</div></div>`}
+function readForm(el,u){
+  const g=n=>{const e=el.querySelector(`input[name="${u}${n}"]:checked`);return e?e.value:""};
+  const t=n=>el.querySelector("#"+u+n).value;const A={};
+  el.querySelectorAll("tr[data-n]").forEach((tr,i)=>{A[tr.dataset.n]={a:g("av"+i),r:g("rt"+i),c:t("cm"+i)}});
+  return{Q1:g("q1"),Q2:g("q2"),Q3:g("q3"),Agencies:A,Liked:t("Liked"),Improve:t("Improve"),Location:t("Location"),Type:g("Type"),Gender:g("Gender"),Age:t("Age"),First:g("First")}}
+
+/* ---------- start ---------- */
+if(CFG.apiKey.startsWith("YOUR")){
+  app.innerHTML=`<div class="card"><h1>Setup needed</h1><p>Paste your Firebase web app config into the <code>CFG</code> object near the top of this file’s script.</p></div>`;
+}else{
+  firebase.initializeApp(CFG);db=firebase.firestore();auth=firebase.auth();
+  db.collection("config").doc("agencies").get().then(s=>{if(s.exists&&s.data().list&&s.data().list.length)ag=s.data().list}).catch(()=>{})
+    .then(()=>location.hash==="#admin"?admin():client());
+  window.addEventListener("hashchange",()=>location.reload());
+}
+
+/* ---------- CLIENT (QR code lands here) ---------- */
+function client(){
+  app.innerHTML=`<div class="card"><h1>Alagang OWWA – Client Feedback Form</h1>
+<p>Your feedback helps us improve our services for OFWs and their families. Please take a few minutes to answer this form.</p>
+<div id="fm">${formHTML(ag,null,"c_")}</div><p class="err" id="err"></p>
+<button class="p big" id="sub">Submit Feedback</button>
+<div class="foot">Thank you for your time and participation.<br>Overseas Workers Welfare Administration (OWWA)<br><i>“Alagang OWWA: Serbisyong may Puso.”</i></div></div>`;
+  $("sub").onclick=async()=>{
+    const o=readForm($("fm"),"c_");
+    if(!o.Q1){$("err").textContent="Please rate your overall experience (Part I, question 1).";return}
+    $("sub").disabled=true;$("err").textContent="";
+    try{await db.collection("feedback").add({...o,Created:firebase.firestore.FieldValue.serverTimestamp()});
+      app.innerHTML=`<div class="card center"><div class="e">🙏</div><h1 style="border:0">Thank you!</h1><p>Your feedback has been submitted.</p><button id="again">Submit another response</button></div>`;
+      $("again").onclick=client;window.scrollTo(0,0);
+    }catch(e){$("err").textContent="Could not submit. Please check your connection and try again.";$("sub").disabled=false}
+  };
+}
+
+/* ---------- ADMIN (#admin) ---------- */
+function admin(){auth.onAuthStateChanged(u=>{if(unsub){unsub();unsub=null}u?dash(u):login()})}
+function login(){
+  app.innerHTML=`<div class="card" style="max-width:340px;margin:40px auto;text-align:center"><h1>Admin access</h1><p class="note">Enter your PIN</p>
+<p><input type="password" id="pw" inputmode="numeric" autocomplete="current-password" maxlength="6" placeholder="••••••" style="text-align:center;font-size:22px;letter-spacing:6px"></p>
+<p class="err" id="err"></p><button class="p big" id="go" style="margin:0">Enter</button></div>`;
+  const go=()=>!/^\d{6}$/.test($("pw").value)?($("err").textContent="Enter your 6-digit PIN."):auth.signInWithEmailAndPassword(ADMIN_EMAIL,$("pw").value).catch(e=>{$("err").textContent=e.code==="auth/too-many-requests"?"Too many attempts. Try again later.":"Incorrect PIN."});
+  $("go").onclick=go;$("pw").onkeydown=e=>{if(e.key==="Enter")go()};
+}
+let tab="resp",q="";
+function dash(u){
+  app.className="wrap wide";
+  app.innerHTML=`<div class="card"><div class="bar"><h1 style="border:0;margin:0;padding:0;flex:1">Feedback dashboard</h1><span class="note">${esc(u.email)}</span><button id="out">Sign out</button></div>
+<div class="bar tabs"><button data-t="resp">Responses</button><button data-t="sum">Summary</button><button data-t="set">Settings &amp; QR code</button></div><div id="body"></div></div><div id="mod"></div>`;
+  $("out").onclick=()=>auth.signOut();
+  document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;view()});
+  unsub=db.collection("feedback").orderBy("Created","desc").onSnapshot(s=>{rows=s.docs.map(d=>({id:d.id,...d.data()}));view()},e=>{$("body").innerHTML=`<p class="err">Cannot read data: ${esc(e.message)}. Check that you are signed in with the admin email set in your Firestore rules.</p>`});
+}
+const when=r=>r.Created&&r.Created.toDate?r.Created.toDate().toLocaleString():"";
+const allAg=()=>{const s=ag.slice();rows.forEach(r=>Object.keys(r.Agencies||{}).forEach(k=>{if(!s.includes(k))s.push(k)}));return s};
+function view(){
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
+  if(tab==="resp")respView();else if(tab==="sum")sumView();else setView();
+}
+function respView(){
+  $("body").innerHTML=`<div class="bar"><input type="text" id="q" placeholder="Search…" value="${esc(q)}"><span class="note" id="cnt"></span><span class="sp"></span><button class="p" id="exp">Export to Excel (.xlsx)</button></div>
+<div class="tw"><table style="min-width:900px"><thead><tr>${["#","Date","Overall","Flow","Recommend","Location","Type","Gender","Age","First-time","Agencies availed",""].map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody id="tb"></tbody></table></div>`;
+  $("q").oninput=e=>{q=e.target.value;list()};$("exp").onclick=exportXlsx;list();
+}
+function list(){
+  const s=q.toLowerCase();let n=0;
+  $("tb").innerHTML=rows.map((r,i)=>({r,i})).filter(({r})=>!s||JSON.stringify({...r,Created:0}).toLowerCase().includes(s)).map(({r,i})=>{n++;
+    const av=Object.entries(r.Agencies||{}).filter(([,v])=>v.a==="Yes").map(([k])=>k).join(", ");
+    return `<tr><td>${rows.length-i}</td><td>${esc(when(r))}</td><td>${esc(r.Q1)}</td><td>${esc(r.Q2)}</td><td>${esc(r.Q3)}</td><td>${esc(r.Location)}</td><td>${esc(r.Type)}</td><td>${esc(r.Gender)}</td><td>${esc(r.Age)}</td><td>${esc(r.First)}</td><td>${esc(av)}</td>
+<td style="white-space:nowrap"><button onclick="editRow('${r.id}')">Edit</button> <button class="d" onclick="delRow('${r.id}')">Delete</button></td></tr>`}).join("")||`<tr><td colspan="12" class="note">No responses yet.</td></tr>`;
+  $("cnt").textContent=n+" of "+rows.length+" responses";
+}
+window.delRow=id=>{if(confirm("Delete this response permanently?"))db.collection("feedback").doc(id).delete().catch(e=>alert(e.message))};
+window.editRow=id=>{
+  const r=rows.find(x=>x.id===id);if(!r)return;
+  const names=[...ag];Object.keys(r.Agencies||{}).forEach(k=>{if(!names.includes(k))names.push(k)});
+  $("mod").innerHTML=`<div class="modal"><div class="card"><h1>Edit response</h1><div id="ef">${formHTML(names,r,"e_")}</div><p class="err" id="eerr"></p>
+<div class="bar"><button class="p" id="esave">Save changes</button><button id="ecan">Cancel</button></div></div></div>`;
+  $("ecan").onclick=()=>$("mod").innerHTML="";
+  $("esave").onclick=()=>{db.collection("feedback").doc(id).update(readForm($("ef"),"e_")).then(()=>$("mod").innerHTML="").catch(e=>$("eerr").textContent=e.message)};
+};
+function sumView(){
+  const cnt=(k,vals)=>vals.map(v=>`<tr><td>${v}</td><td>${rows.filter(r=>r[k]===v).length}</td></tr>`).join("");
+  const rate=allAg().map(a=>{const rs=rows.map(r=>(r.Agencies||{})[a]).filter(v=>v&&v.a==="Yes");const nums=rs.map(v=>Number(v.r)).filter(Boolean);
+    return `<tr><td>${esc(a)}</td><td>${rs.length}</td><td>${nums.length?(nums.reduce((x,y)=>x+y,0)/nums.length).toFixed(2):"–"}</td></tr>`}).join("");
+  $("body").innerHTML=`<p><b>Total responses: ${rows.length}</b></p><div class="row" style="align-items:start">
+<div><table><thead><tr><th>Overall experience</th><th>Count</th></tr></thead><tbody>${cnt("Q1",["Excellent","Very Good","Good","Fair","Poor"])}</tbody></table></div>
+<div><table><thead><tr><th>Flow organized</th><th>Count</th></tr></thead><tbody>${cnt("Q2",["Very Organized","Somewhat Organized","Needs Improvement"])}</tbody></table></div>
+<div><table><thead><tr><th>Would recommend</th><th>Count</th></tr></thead><tbody>${cnt("Q3",["Yes","No"])}</tbody></table></div></div>
+<h2>Agency ratings</h2><div class="tw"><table><thead><tr><th>Agency / Service</th><th>Availed (count)</th><th>Average rating</th></tr></thead><tbody>${rate}</tbody></table></div>`;
+}
+function setView(){
+  const url=location.href.split("#")[0];
+  $("body").innerHTML=`<div class="row" style="align-items:start"><div><h2 style="margin-top:0">Client QR code</h2><p class="note">Clients who scan this open only the feedback form.<br><b>${esc(url)}</b></p><div id="qr" style="background:#fff;padding:10px;display:inline-block"></div><p><button id="dl">Download QR image</button></p></div>
+<div><h2 style="margin-top:0">Agency list</h2><p class="note">One agency per line. This changes the form for all clients.</p><textarea id="agt" style="min-height:190px">${esc(ag.join("\n"))}</textarea><p class="err" id="aerr"></p><button class="p" id="asave">Save agency list</button></div></div>
+<h2>Change admin PIN</h2><div class="bar"><input type="password" id="npin" inputmode="numeric" maxlength="6" placeholder="New 6-digit PIN"><button class="p" id="psave">Change PIN</button><span class="err" id="perr"></span></div>`;
+  $("psave").onclick=()=>{const p=$("npin").value;if(!/^\d{6}$/.test(p)){$("perr").textContent="PIN must be exactly 6 digits.";return}
+    auth.currentUser.updatePassword(p).then(()=>{$("perr").style.color="inherit";$("perr").textContent="PIN changed.";$("npin").value=""}).catch(e=>$("perr").textContent=e.code==="auth/requires-recent-login"?"Sign out and sign in again, then retry.":e.message)};
+  new QRCode($("qr"),{text:url,width:220,height:220});
+  $("dl").onclick=()=>{const c=$("qr").querySelector("canvas");const a=document.createElement("a");a.href=c.toDataURL("image/png");a.download="feedback-qr.png";a.click()};
+  $("asave").onclick=()=>{const l=[...new Set($("agt").value.split("\n").map(s=>s.trim()).filter(Boolean))];if(!l.length){$("aerr").textContent="Add at least one agency.";return}
+    db.collection("config").doc("agencies").set({list:l}).then(()=>{ag=l;$("aerr").textContent="Saved."}).catch(e=>$("aerr").textContent=e.message)};
+}
+function exportXlsx(){
+  if(!rows.length){alert("No responses to export.");return}
+  const A=allAg(),S=[" – Availed"," – Rating"," – Comments"];
+  const head=["#","Date submitted","1. Overall experience","2. Flow organized","3. Would recommend",...A.flatMap(a=>S.map(s=>a+s)),"What did you like most","What can we improve","City / Country of Deployment","Type of Participant","Gender","Age","First-time Attendee"];
+  const data=rows.slice().reverse().map((r,i)=>{const o={"#":i+1,"Date submitted":when(r),"1. Overall experience":r.Q1,"2. Flow organized":r.Q2,"3. Would recommend":r.Q3};
+    A.forEach(a=>{const v=(r.Agencies||{})[a]||{};o[a+S[0]]=v.a||"";o[a+S[1]]=v.r?Number(v.r):"";o[a+S[2]]=v.c||""});
+    Object.assign(o,{"What did you like most":r.Liked,"What can we improve":r.Improve,"City / Country of Deployment":r.Location,"Type of Participant":r.Type,"Gender":r.Gender,"Age":r.Age?Number(r.Age):"","First-time Attendee":r.First});return o});
+  const ws=XLSX.utils.json_to_sheet(data,{header:head});ws["!cols"]=head.map(h=>({wch:/Comments|like|improve/i.test(h)?36:/Rating|Availed|#|Age/.test(h)?12:20}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Feedback");XLSX.writeFile(wb,"alagang-owwa-feedback.xlsx");
+}
+</script>
+</body>
+</html>
